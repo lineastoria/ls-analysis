@@ -1,0 +1,18 @@
+[project]
+name = "test-app"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.1.2",
+    "pandas>=2.2.3",
+    "plotly>=5.24.1",
+    "psycopg2-binary>=2.9.10",
+    "psycopg2>=2.9.10",
+    "sshtunnel>=0.4.0",
+    "statsmodels>=0.14.4",
+    "streamlit-authenticator>=0.4.1",
+    "streamlit>=1.39.0",
+    "watchdog>=5.0.3",
+]
