@@ -6,13 +6,23 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import requests
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional
 import tempfile
 import os
 import stat
 import streamlit as st
-import numpy as np
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+
+SHOPIFY_ACCESS_TOKEN = os.getenv('SHOPIFY_ACCESS_TOKEN')
+SHOP_URL = os.getenv('SHOP_URL')
+BASTION_HOST = os.getenv('BASTION_HOST')
+BASTION_USER = os.getenv('BASTION_USER')
+RDS_HOST = os.getenv('RDS_HOST')
+DB_NAME = os.getenv('DB_NAME')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
 
 class ShopifyAnalyzer:
     def __init__(
@@ -467,13 +477,13 @@ def run_streamlit_dashboard():
         
         # データベース接続情報
         db_config = {
-            "bastion_host": st.text_input("Bastion Host", value="35.79.183.232"),
-            "bastion_user": st.text_input("Bastion User", value="ec2-user"),
-            "rds_host": st.text_input("RDS Host", value="ls-app.cysyyl7acyzm.ap-northeast-1.rds.amazonaws.com"),
+            "bastion_host": st.text_input("Bastion Host", value=BASTION_HOST),
+            "bastion_user": st.text_input("Bastion User", value=BASTION_USER),
+            "rds_host": st.text_input("RDS Host", value=RDS_HOST),
             "rds_port": st.number_input("RDS Port", value=5432),
-            "db_name": st.text_input("Database Name", value="ls_app_db_stg"),
+            "db_name": st.text_input("Database Name", value=DB_NAME),
             "db_user": st.text_input("Database User", value="postgres"),
-            "db_password": st.text_input("Database Password", type="password")
+            "db_password": st.text_input("Database Password", value=DB_PASSWORD, type="password")
         }
 
         # SSH Key アップロード
@@ -485,8 +495,8 @@ def run_streamlit_dashboard():
 
         # Shopify API設定
         shopify_config = {
-            "shop_url": st.text_input("Shop URL", value="linea-storia.myshopify.com"),
-            "access_token": st.text_input("Access Token", value="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", type="password")
+            "shop_url": st.text_input("Shop URL", value=SHOP_URL),
+            "access_token": st.text_input("Access Token", value=SHOPIFY_ACCESS_TOKEN, type="password")
         }
 
         st.header("期間設定")
