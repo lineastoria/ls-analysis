@@ -10,6 +10,7 @@ dependencies = [
     "plotly>=5.24.1",
     "psycopg2-binary>=2.9.10",
     "psycopg2>=2.9.10",
+    "python-dotenv>=1.0.1",
     "sshtunnel>=0.4.0",
     "statsmodels>=0.14.4",
     "streamlit-authenticator>=0.4.1",
