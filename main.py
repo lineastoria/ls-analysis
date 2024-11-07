@@ -206,7 +206,7 @@ class ShopifyAnalyzer:
         return result_df, debug_results
 
     def analyze_repeat_customers(self, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> pd.DataFrame:
-        """リピーター分析を実行（デバッグ情報付き）"""
+        """リピーター分析を実行"""
         inspection_customers, debug_results = self.get_inspection_customers(start_date, end_date)
         
         results = []
@@ -275,7 +275,7 @@ class ShopifyAnalyzer:
 
                 customer_data = response_data["data"]["customer"]
                 
-                # ordersの確認
+                # 注文データの確認
                 orders = customer_data.get("orders", {}).get("edges", [])
                 if not orders:
                     shopify_debug["missing_orders"] += 1
@@ -288,13 +288,23 @@ class ShopifyAnalyzer:
                     shopify_debug["missing_metafields"] += 1
                 
                 # メタフィールドからリピーター情報を取得
-                is_aishipr_repeater = False
+                is_shopify_repeater = False
                 for metafield in metafields:
                     if (metafield["node"]["namespace"] == "aishipr" and 
                         metafield["node"]["key"] in ["totalorders", "amountspent"] and 
                         metafield["node"]["value"]):
-                        is_aishipr_repeater = True
+                        is_shopify_repeater = True
                         break
+
+                # 注文履歴の分析
+                order_dates = sorted([datetime.fromisoformat(order["node"]["createdAt"].rstrip('Z')) 
+                                    for order in orders])
+                
+                # 過去の注文履歴があるかチェック（注文回数が1より大きい）
+                has_previous_orders = len(orders) > 1
+
+                # リピーター判定（どちらかの条件を満たせばリピーター）
+                is_repeat_customer = is_shopify_repeater or has_previous_orders
 
                 # 注文金額の計算
                 order_amounts = [float(order["node"]["totalPrice"]) for order in orders]
@@ -317,7 +327,9 @@ class ShopifyAnalyzer:
                     "total_orders": len(orders),
                     "total_spent": total_spent,
                     "average_order_value": total_spent / len(orders),
-                    "is_repeater": is_aishipr_repeater,
+                    "is_shopify_repeater": is_shopify_repeater,  # メタフィールドベースの情報（参考用）
+                    "has_previous_orders": has_previous_orders,   # 注文回数ベースの情報（参考用）
+                    "is_repeat_customer": is_repeat_customer,    # 最終的なリピーター判定
                     "spending_segment": spending_segment
                 })
                 
@@ -328,18 +340,6 @@ class ShopifyAnalyzer:
                 st.error(f"Error processing customer {customer['customer_id']}: {str(e)}")
                 continue
 
-        # デバッグ情報を表示
-        st.write("### 処理状況サマリー")
-        st.write(f"- DB上の検品リクエスト総数: {debug_results['total_inspections']}件")
-        st.write(f"- 処理対象顧客数: {total_customers}人")
-        st.write(f"- 正常処理完了顧客数: {shopify_debug['successful_customers']}人")
-        st.write("")
-        st.write("### Shopify API 処理結果")
-        st.write(f"- API エラー数: {shopify_debug['api_errors']}件")
-        st.write(f"- 注文データなし: {shopify_debug['missing_orders']}件")
-        st.write(f"- メタフィールドなし: {shopify_debug['missing_metafields']}件")
-
-        # 最終的な結果を返す
         return pd.DataFrame(results)
 
     def disconnect_db(self):
@@ -357,37 +357,61 @@ class ShopifyAnalyzer:
 
 def create_basic_metrics(df: pd.DataFrame) -> None:
     """基本指標の表示"""
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.metric(
-            "リクエスト検品申込数",
-            f"{df['total_requests'].sum():,}件",
-            help="期間内の全リクエスト検品申込数"
-        )
+        st.subheader("検品申込情報")
+        metric_col1, metric_col2 = st.columns(2)
+        with metric_col1:
+            st.metric(
+                "リクエスト検品申込数",
+                f"{df['total_requests'].sum():,}件",
+                help="期間内の全リクエスト検品申込数"
+            )
+        with metric_col2:
+            st.metric(
+                "顧客数",
+                f"{len(df):,}人",
+                help="期間内のユニーク顧客数"
+            )
     
     with col2:
-        st.metric(
-            "顧客数",
-            f"{len(df):,}人",
-            help="期間内のユニーク顧客数"
-        )
-    
-    with col3:
-        repeat_rate = (df['is_repeater'].sum() / len(df)) * 100
-        st.metric(
-            "リピート率",
-            f"{repeat_rate:.1f}%",
-            help="Shopifyメタフィールド（aishipr.totalorders/amountspent）に基づく実リピート率"
-        )
-    
-    with col4:
-        avg_order = df['average_order_value'].mean()
-        st.metric(
-            "平均注文単価",
-            f"¥{avg_order:,.0f}",
-            help="顧客あたりの平均注文金額"
-        )
+        st.subheader("顧客購入履歴")
+        metric_col3, metric_col4, metric_col5 = st.columns(3)
+        
+        total_customers = len(df)
+        repeat_customers = df['is_repeat_customer'].sum()
+        new_customers = total_customers - repeat_customers
+        
+        with metric_col3:
+            st.metric(
+                "リピート購入率",
+                f"{(repeat_customers/total_customers*100):.1f}%",
+                help="メタフィールドまたは注文回数から判定した、過去に注文実績のある顧客の割合"
+            )
+        
+        with metric_col4:
+            st.metric(
+                "新規購入率",
+                f"{(new_customers/total_customers*100):.1f}%",
+                help="初めて注文した顧客の割合"
+            )
+        
+        with metric_col5:
+            avg_order = df['average_order_value'].mean()
+            st.metric(
+                "平均注文単価",
+                f"¥{avg_order:,.0f}",
+                help="顧客あたりの平均注文金額"
+            )
+
+        # 判定基準の補足説明を追加
+        st.info("""
+        リピーター判定基準:
+        - Shopifyのメタフィールド（totalorders/amountspent）に値がある
+        - または注文回数が2回以上
+        のいずれかを満たす顧客をリピーターとしています。
+        """)
 
 def create_category_analysis(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataFrame]:
     """カテゴリ分析グラフとデータの作成"""
@@ -414,6 +438,12 @@ def create_category_analysis(df: pd.DataFrame) -> Tuple[go.Figure, pd.DataFrame]
         showlegend=False
     )
     
+    # 棒グラフの色を変更
+    fig.update_traces(
+        marker_color='#F5B79E',
+        hovertemplate='カテゴリー: %{x}<br>申込数: %{y}<extra></extra>'
+    )
+    
     # 詳細データの作成
     category_detail = pd.DataFrame({
         'カテゴリー': category_counts.index,
@@ -429,13 +459,23 @@ def create_spending_segment_analysis(df: pd.DataFrame) -> Tuple[go.Figure, pd.Da
     # セグメント別集計
     segment_counts = df['spending_segment'].value_counts()
     
+    # セグメントの順序を指定（High → Medium → Low）
+    segments = ['High', 'Medium', 'Low']
+    ordered_counts = pd.Series([
+        segment_counts.get(segment, 0) for segment in segments
+    ], index=segments)
+    
+    # サーモンピンク系の色指定（濃い→薄い）
+    colors = ['#F5B79E', '#F8CBBE', '#FBE0D8']
+    
     # グラフ作成
     fig = go.Figure(data=[
         go.Pie(
-            labels=segment_counts.index,
-            values=segment_counts.values,
+            labels=ordered_counts.index,
+            values=ordered_counts.values,
             hole=.3,
-            marker_colors=['#2E86C1', '#5DADE2', '#AED6F1']
+            marker_colors=colors,
+            sort=False  # 順序を維持
         )
     ])
     
@@ -449,14 +489,14 @@ def create_spending_segment_analysis(df: pd.DataFrame) -> Tuple[go.Figure, pd.Da
         }
     )
     
-    # セグメント別の詳細指標
+    # セグメント別の詳細指標（元の順序を維持）
     segment_metrics = df.groupby('spending_segment').agg({
         'total_requests': 'sum',
         'total_items_requested': 'sum',
         'average_order_value': 'mean',
-        'is_repeater': 'mean',
+        'has_previous_orders': 'mean',  # is_repeater から has_previous_orders に変更
         'customer_id': 'count'
-    }).round(2)
+    }).reindex(segments).round(2)
     
     segment_metrics.columns = ['申込数', '商品数', '平均注文単価', 'リピート率', '顧客数']
     segment_metrics['リピート率'] = (segment_metrics['リピート率'] * 100).round(1).astype(str) + '%'
@@ -473,32 +513,17 @@ def run_streamlit_dashboard():
         st.session_state.df = None
 
     with st.sidebar:
-        st.header("接続設定")
+        st.title("検品リクエスト分析")
         
-        # データベース接続情報
-        db_config = {
-            "bastion_host": st.text_input("Bastion Host", value=BASTION_HOST),
-            "bastion_user": st.text_input("Bastion User", value=BASTION_USER),
-            "rds_host": st.text_input("RDS Host", value=RDS_HOST),
-            "rds_port": st.number_input("RDS Port", value=5432),
-            "db_name": st.text_input("Database Name", value=DB_NAME),
-            "db_user": st.text_input("Database User", value="postgres"),
-            "db_password": st.text_input("Database Password", value=DB_PASSWORD, type="password")
-        }
-
         # SSH Key アップロード
+        st.write("データベースに接続するためにSSH keyをアップロードしてください")
         ssh_key_file = st.file_uploader("SSH秘密鍵ファイル", type=['pem'])
         if ssh_key_file is not None:
             ssh_key_content = ssh_key_file.getvalue().decode()
         else:
             ssh_key_content = None
 
-        # Shopify API設定
-        shopify_config = {
-            "shop_url": st.text_input("Shop URL", value=SHOP_URL),
-            "access_token": st.text_input("Access Token", value=SHOPIFY_ACCESS_TOKEN, type="password")
-        }
-
+        # 期間設定
         st.header("期間設定")
         col1, col2 = st.columns(2)
         with col1:
@@ -511,18 +536,29 @@ def run_streamlit_dashboard():
                 "終了日",
                 datetime.now()
             )
-        
-        if st.button("分析実行"):
-            if not db_config["db_password"]:
-                st.error("データベースパスワードを入力してください")
-                return
-                
+            
+        if st.button("接続"):
             if not ssh_key_content:
                 st.error("SSH秘密鍵ファイルをアップロードしてください")
                 return
 
             try:
-                st.session_state.analyzer = ShopifyAnalyzer(db_config, shopify_config, ssh_key_content)
+                st.session_state.analyzer = ShopifyAnalyzer(
+                    db_config={
+                        "bastion_host": BASTION_HOST,
+                        "bastion_user": BASTION_USER,
+                        "rds_host": RDS_HOST,
+                        "rds_port": 5432,
+                        "db_name": DB_NAME,
+                        "db_user": "postgres",
+                        "db_password": DB_PASSWORD
+                    }, 
+                    shopify_config={
+                        "shop_url": SHOP_URL,
+                        "access_token": SHOPIFY_ACCESS_TOKEN
+                    },
+                    ssh_key_content=ssh_key_content
+                )
                 st.session_state.analyzer.connect_db()
 
                 st.session_state.df = st.session_state.analyzer.analyze_repeat_customers(
@@ -630,7 +666,7 @@ def run_streamlit_dashboard():
                     'average_order_value',
                     'spending_segment',
                     'categories',
-                    'is_repeater'
+                    'has_previous_orders'  # is_repeater から変更
                 ]
             )
             
@@ -643,7 +679,8 @@ def run_streamlit_dashboard():
                 'average_order_value': '平均注文単価',
                 'spending_segment': '購入金額セグメント',
                 'categories': 'カテゴリー',
-                'is_repeater': 'リピーター'
+                'has_previous_orders': 'リピート購入',  # 名称も変更
+                'is_shopify_repeater': 'メタフィールドのリピート情報'  # 追加
             }
             
             if display_columns:
@@ -658,7 +695,8 @@ def run_streamlit_dashboard():
                     display_df.style.format({
                         '購入総額': '¥{:,.0f}',
                         '平均注文単価': '¥{:,.0f}',
-                        'リピーター': lambda x: 'はい' if x else 'いいえ'
+                        'リピート購入': lambda x: 'はい' if x else 'いいえ',
+                        'メタフィールドのリピート情報': lambda x: 'はい' if x else 'いいえ'
                     })
                 )
 
