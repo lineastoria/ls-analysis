@@ -5,3 +5,4 @@ sshtunnel
 plotly
 requests
 python-dotenv
+streamlit-extras
